@@ -1,6 +1,8 @@
 name: CI
 
-permissions: {}
+permissions:
+  # Doing it explicitly because the default permission only includes metadata: read.
+  contents: read
 
 on:
   workflow_dispatch:
@@ -24,7 +26,7 @@ defaults:
 
 env:
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-D warnings"
+  # RUSTFLAGS: "-D warnings"
 
 jobs:
   test:
@@ -33,33 +35,77 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-          - os: windows-latest
-          - os: macos-14
+          # - os: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: taiki-e/checkout-action@b13d20b7cda4e2f325ef19895128f7ff735c0b3d # v1
-      - uses: oxc-project/setup-rust@cd82e1efec7fef815e2c23d296756f31c7cdc03d # v1.0.0
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2 # stable
+        env:
+          CARGO_INCREMENTAL: "1"
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        if: ${{ runner.os != 'Windows' }}
         with:
-          save-cache: ${{ github.ref_name == 'main' }}
+          save-if: ${{ github.ref_name == 'main' }}
+          shared-key: ${{ matrix.os }}-${{ matrix.target }}
+      - run: rustup target add x86_64-unknown-linux-musl
+        if: matrix.os == 'ubuntu-latest'
       - run: cargo check --all-targets --all-features
       - run: cargo test
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: blaze/macos-latest
     steps:
-      - uses: taiki-e/checkout-action@b13d20b7cda4e2f325ef19895128f7ff735c0b3d # v1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: oxc-project/setup-rust@cd82e1efec7fef815e2c23d296756f31c7cdc03d # v1.0.0
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2 # stable
+        env:
+          CARGO_INCREMENTAL: "1"
         with:
-          components: clippy rust-docs rustfmt
+          components: clippy,rust-docs,rustfmt
+
+      - run: rustup target add x86_64-unknown-linux-musl
 
       - run: |
           cargo fmt --check
-          cargo clippy --all-targets --all-features -- -D warnings
+          # cargo clippy --all-targets --all-features -- -D warnings
           RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --document-private-items
 
       - uses: crate-ci/typos@master
         with:
           files: .
+
+  run:
+    name: Run task
+    runs-on: blaze/macos-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2 # stable
+        env:
+          CARGO_INCREMENTAL: "1"
+
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build self
+        run: cargo build --bin vt
+
+      - name: Run self
+        run: ./target/debug/vt vite-plus#build

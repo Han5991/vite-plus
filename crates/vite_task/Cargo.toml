@@ -8,6 +8,10 @@ publish = false
 readme = "README.md"
 rust-version.workspace = true
 
+[[bin]]
+name = "vt"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
@@ -38,5 +42,7 @@ twox-hash = { workspace = true }
 vite_package_manager = { workspace = true }
 wax = { workspace = true }
 
+vite_error = { workspace = true }
+
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.30.1", features = ["dir"] }
+nix = { workspace = true }
