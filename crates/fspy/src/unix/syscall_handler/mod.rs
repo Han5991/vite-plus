@@ -16,13 +16,26 @@ pub struct SyscallHandler {
 }
 
 impl SyscallHandler {
-    fn openat(&mut self, (_, path): (Ignored, CStrPtr)) -> io::Result<()> {
+    fn handle_open(&mut self, path: CStrPtr) -> io::Result<()> {
         path.read_with_buf::<PATH_MAX, _, _>(|path| {
+            let Some(path) = path else {
+                // Ignore paths that are too long to fit in PATH_MAX
+                return Ok(());
+            };
             self.arena
                 .add(PathAccess { mode: AccessMode::Read, path: NativeStr::from_bytes(path) });
             Ok(())
         })?;
         Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn open(&mut self, (path,): (CStrPtr,)) -> io::Result<()> {
+        self.handle_open(path)
+    }
+
+    fn openat(&mut self, (_, path): (Ignored, CStrPtr)) -> io::Result<()> {
+        self.handle_open(path)
     }
 
     fn getdents64(&mut self, (fd,): (Fd,)) -> io::Result<()> {
@@ -36,7 +49,8 @@ impl SyscallHandler {
 }
 
 impl_handler!(
-    SyscallHandler,
-    openat
-    getdents64
+    SyscallHandler:
+    #[cfg(target_arch = "x86_64")] open,
+    openat,
+    getdents64,
 );
