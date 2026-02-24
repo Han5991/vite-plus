@@ -103,7 +103,7 @@ pub enum SynthesizableSubcommand {
 
 /// Top-level CLI argument parser for vite-plus.
 #[derive(Debug, Parser)]
-#[command(name = "vite", disable_help_subcommand = true)]
+#[command(name = "vp", disable_help_subcommand = true)]
 enum CLIArgs {
     /// vite-task commands (run, cache)
     #[command(flatten)]
@@ -375,7 +375,7 @@ impl SubcommandResolver {
                         envs: Some(Box::new([Str::from("VITE_*")])),
                         pass_through_envs: None,
                     }),
-                    envs: merge_resolved_envs(envs, resolved.envs),
+                    envs: merge_resolved_envs_with_version(envs, resolved.envs),
                 })
             }
             SynthesizableSubcommand::Test { args } => {
@@ -398,7 +398,7 @@ impl SubcommandResolver {
                         envs: None,
                         pass_through_envs: None,
                     }),
-                    envs: merge_resolved_envs(envs, resolved.envs),
+                    envs: merge_resolved_envs_with_version(envs, resolved.envs),
                 })
             }
             SynthesizableSubcommand::Pack { args } => {
@@ -442,7 +442,7 @@ impl SubcommandResolver {
                         .chain(args.into_iter().map(Str::from))
                         .collect(),
                     cache_config: UserCacheConfig::disabled(),
-                    envs: merge_resolved_envs(envs, resolved.envs),
+                    envs: merge_resolved_envs_with_version(envs, resolved.envs),
                 })
             }
             SynthesizableSubcommand::Preview { args } => {
@@ -463,7 +463,7 @@ impl SubcommandResolver {
                         .chain(args.into_iter().map(Str::from))
                         .collect(),
                     cache_config: UserCacheConfig::disabled(),
-                    envs: merge_resolved_envs(envs, resolved.envs),
+                    envs: merge_resolved_envs_with_version(envs, resolved.envs),
                 })
             }
             SynthesizableSubcommand::Doc { args } => {
@@ -531,6 +531,18 @@ fn merge_resolved_envs(
     Arc::new(envs)
 }
 
+/// Merge resolved envs and inject VITE_PLUS_VERSION for rolldown-vite branding.
+fn merge_resolved_envs_with_version(
+    envs: &Arc<FxHashMap<Arc<OsStr>, Arc<OsStr>>>,
+    resolved_envs: Vec<(String, String)>,
+) -> Arc<FxHashMap<Arc<OsStr>, Arc<OsStr>>> {
+    let mut merged = merge_resolved_envs(envs, resolved_envs);
+    let map = Arc::make_mut(&mut merged);
+    map.entry(Arc::from(OsStr::new("VITE_PLUS_VERSION")))
+        .or_insert_with(|| Arc::from(OsStr::new(env!("CARGO_PKG_VERSION"))));
+    merged
+}
+
 /// CommandHandler implementation for vite-plus.
 /// Handles `vp` commands in task scripts.
 pub struct VitePlusCommandHandler {
@@ -567,10 +579,10 @@ impl CommandHandler for VitePlusCommandHandler {
         if program != "vp" && program != "vite" {
             return Ok(HandledCommand::Verbatim);
         }
-        // Parse "vp <args>" using CLIArgs
-        let cli_args = CLIArgs::try_parse_from(
-            iter::once(command.program.as_str()).chain(command.args.iter().map(Str::as_str)),
-        )?;
+        // Parse "vp <args>" using CLIArgs — always use "vp" as the program name
+        // so clap shows "Usage: vp ..." even if the original command was "vite ..."
+        let cli_args =
+            CLIArgs::try_parse_from(iter::once("vp").chain(command.args.iter().map(Str::as_str)))?;
         match cli_args {
             CLIArgs::Synthesizable(subcmd) => {
                 let resolved = self.resolver.resolve(subcmd, &command.envs, &command.cwd).await?;
@@ -802,7 +814,7 @@ pub async fn main(
         return Ok(ExitStatus::SUCCESS);
     }
 
-    let args_with_program = std::iter::once("vite".to_string()).chain(args_vec.iter().cloned());
+    let args_with_program = std::iter::once("vp".to_string()).chain(args_vec.iter().cloned());
     let cli_args = match CLIArgs::try_parse_from(args_with_program) {
         Ok(args) => args,
         Err(err) => {
@@ -831,10 +843,7 @@ fn normalize_help_args(args: Vec<String>) -> Vec<String> {
 }
 
 fn should_print_help(args: &[String]) -> bool {
-    matches!(
-        args,
-        [arg] if arg == "-h" || arg == "--help"
-    )
+    args.is_empty() || matches!(args, [arg] if arg == "-h" || arg == "--help")
 }
 
 fn print_help() {
@@ -845,21 +854,21 @@ fn print_help() {
     println!(
         "Vite+/{version}
 
-{bold_underline}Usage:{reset} {bold}vite{reset} <COMMAND>
+{bold_underline}Usage:{reset} {bold}vp{reset} <COMMAND>
 
-{bold_underline}Vite+ Commands:{reset}
+{bold_underline}Core Commands:{reset}
   {bold}dev{reset}        Run the development server
   {bold}build{reset}      Build for production
-  {bold}preview{reset}    Preview production build
-  {bold}lint{reset}       Lint code
   {bold}test{reset}       Run tests
+  {bold}lint{reset}       Lint code
   {bold}fmt{reset}        Format code
   {bold}pack{reset}       Build library
   {bold}run{reset}        Run tasks
+  {bold}preview{reset}    Preview production build
   {bold}cache{reset}      Manage the task cache
 
 {bold_underline}Package Manager Commands:{reset}
-  {bold}install{reset}    Install all dependencies
+  {bold}install{reset}    Install all dependencies, or add packages if package names are provided
 
 Options:
   -h, --help  Print help"
