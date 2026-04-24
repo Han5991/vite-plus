@@ -1089,7 +1089,7 @@ importers:
         specifier: ^8.18.1
         version: 8.18.1
       '@vitejs/release-scripts':
-        specifier: ^1.7.0
+        specifier: ^1.6.0
         version: 1.7.0(conventional-commits-filter@5.0.0)
       eslint:
         specifier: ^9.39.4
